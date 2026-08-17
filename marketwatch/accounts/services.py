@@ -1,88 +1,64 @@
 import yfinance as yf
-from datetime import date, timedelta
+import logging
 
-def get_historical_ohlc(symbol, days=30):
-    """
-    Fetches historical OHLC data for both US and Indian stocks.
-    Features a smart fallback to auto-detect NSE Indian stocks.
-    """
-    # Just clean up the string, don't force '.NS' here!
-    base_symbol = symbol.strip().upper()
-    
-    start_date = (date.today() - timedelta(days=days)).strftime('%Y-%m-%d')
-    
-    try:
-        # 1. Try fetching exactly what the user typed (Works for US stocks like 'AAPL')
-        stock = yf.Ticker(base_symbol)
-        df = stock.history(start=start_date)
-        
-        # 2. SMART FALLBACK: If empty, and it doesn't already end in .NS, try the Indian market
-        if df.empty and not base_symbol.endswith('.NS') and not base_symbol.endswith('.BO'):
-            fallback_symbol = f"{base_symbol}.NS"
-            stock_fallback = yf.Ticker(fallback_symbol)
-            df_fallback = stock_fallback.history(start=start_date)
-            
-            # If the fallback worked, use that data instead!
-            if not df_fallback.empty:
-                df = df_fallback
-                
-        # If both attempts failed, return empty
-        if df.empty:
-            return []
-
-        chart_data = []
-        for index, row in df.iterrows():
-            chart_data.append({
-                "time": index.strftime("%Y-%m-%d"), 
-                "open": float(row["Open"]),
-                "high": float(row["High"]),
-                "low": float(row["Low"]),
-                "close": float(row["Close"]),
-            })
-            
-        return chart_data
-        
-    except Exception as e:
-        print(f"Error fetching data for {base_symbol}: {e}")
-        return []
+logger = logging.getLogger(__name__)
 
 def get_watchlist_prices(symbols):
     watchlist_data = []
     
+    if not symbols:
+        return watchlist_data
+
     for symbol in symbols:
-        base_symbol = symbol.strip().upper()
+        raw_symbol = symbol.strip()
+        base_symbol = raw_symbol.upper()
         
-        # 1. Determine the label based on the symbol provided
+        # 1. Determine exchange based on prefix/suffix or default
         if base_symbol.endswith('.NS'):
             exchange = "NSE"
         elif base_symbol.endswith('.BO'):
             exchange = "BSE"
         else:
-            exchange = "NYSE/NASDAQ" # Default for unknown/US
+            exchange = "NYSE/NASDAQ"
             
-        # 2. Try fetching the data
-        stock = yf.Ticker(base_symbol)
-        hist = stock.history(period="2d")
-        
-        # 3. If empty and wasn't already NSE/BSE, try auto-appending .NS
-        if hist.empty and exchange == "NYSE/NASDAQ":
-            base_symbol = f"{base_symbol}.NS"
+        # 2. Attempt fetching with the symbol as provided
+        try:
             stock = yf.Ticker(base_symbol)
             hist = stock.history(period="2d")
-            exchange = "NSE"
             
-        # 4. Proceed with price calculation
-        if not hist.empty:
-            # (Keep your existing price math logic here)
-            prev_close = float(hist['Close'].iloc[-2]) if len(hist) >= 2 else float(hist['Open'].iloc[0])
-            current_price = float(hist['Close'].iloc[-1])
-            
-            watchlist_data.append({
-                "symbol": base_symbol,
-                "exchange": exchange,
-                "price": current_price,
-                "change": current_price - prev_close,
-                "pChange": ((current_price - prev_close) / prev_close) * 100
-            })
+            # 3. Fallback: If no data found and no suffix was given, try appending .NS for Indian markets
+            if hist.empty and exchange == "NYSE/NASDAQ":
+                fallback_symbol = f"{base_symbol}.NS"
+                stock = yf.Ticker(fallback_symbol)
+                hist = stock.history(period="2d")
+                if not hist.empty:
+                    base_symbol = fallback_symbol
+                    exchange = "NSE"
+
+            # 4. Process pricing if history is successfully retrieved
+            if not hist.empty:
+                # Handle edge case where only 1 day of history is returned
+                if len(hist) >= 2:
+                    prev_close = float(hist['Close'].iloc[-2])
+                else:
+                    prev_close = float(hist['Open'].iloc[0])
+                    
+                current_price = float(hist['Close'].iloc[-1])
+                change = current_price - prev_close
+                p_change = (change / prev_close) * 100 if prev_close != 0 else 0.0
+
+                watchlist_data.append({
+                    "symbol": base_symbol,
+                    "exchange": exchange,
+                    "price": round(current_price, 2),
+                    "change": round(change, 2),
+                    "pChange": round(p_change, 2)
+                })
+            else:
+                logger.warning(f"No market data found for ticker: {base_symbol}")
+                
+        except Exception as e:
+            logger.error(f"Error fetching data for {base_symbol}: {str(e)}")
+            continue
             
     return watchlist_data
