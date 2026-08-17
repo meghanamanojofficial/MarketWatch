@@ -13,30 +13,38 @@ def get_watchlist_prices(symbols):
         raw_symbol = symbol.strip()
         base_symbol = raw_symbol.upper()
         
-        # 1. Determine exchange based on prefix/suffix or default
+        # Determine exchange label and formatting
         if base_symbol.endswith('.NS'):
             exchange = "NSE"
+            search_symbols = [base_symbol]
         elif base_symbol.endswith('.BO'):
             exchange = "BSE"
+            search_symbols = [base_symbol]
         else:
+            # For US stocks or raw inputs, try exact match first, then auto-fallback to .NS and .BO
             exchange = "NYSE/NASDAQ"
-            
-        # 2. Attempt fetching with the symbol as provided
-        try:
-            stock = yf.Ticker(base_symbol)
-            hist = stock.history(period="2d")
-            
-            # 3. Fallback: If no data found and no suffix was given, try appending .NS for Indian markets
-            if hist.empty and exchange == "NYSE/NASDAQ":
-                fallback_symbol = f"{base_symbol}.NS"
-                stock = yf.Ticker(fallback_symbol)
-                hist = stock.history(period="2d")
-                if not hist.empty:
-                    base_symbol = fallback_symbol
-                    exchange = "NSE"
+            search_symbols = [base_symbol, f"{base_symbol}.NS", f"{base_symbol}.BO"]
 
-            # 4. Process pricing if history is successfully retrieved
-            if not hist.empty:
+        hist = None
+        resolved_symbol = base_symbol
+
+        for s in search_symbols:
+            try:
+                stock = yf.Ticker(s)
+                temp_hist = stock.history(period="2d")
+                if not temp_hist.empty:
+                    hist = temp_hist
+                    resolved_symbol = s
+                    if s.endswith('.NS'):
+                        exchange = "NSE"
+                    elif s.endswith('.BO'):
+                        exchange = "BSE"
+                    break
+            except Exception:
+                continue
+
+        if hist is not None and not hist.empty:
+            try:
                 if len(hist) >= 2:
                     prev_close = float(hist['Close'].iloc[-2])
                 else:
@@ -47,37 +55,37 @@ def get_watchlist_prices(symbols):
                 p_change = (change / prev_close) * 100 if prev_close != 0 else 0.0
 
                 watchlist_data.append({
-                    "symbol": base_symbol,
+                    "symbol": resolved_symbol,
                     "exchange": exchange,
                     "price": round(current_price, 2),
                     "change": round(change, 2),
                     "pChange": round(p_change, 2)
                 })
-            else:
-                logger.warning(f"No market data found for ticker: {base_symbol}")
-                
-        except Exception as e:
-            logger.error(f"Error fetching data for {base_symbol}: {str(e)}")
-            continue
+            except Exception as e:
+                logger.error(f"Error calculating prices for {resolved_symbol}: {str(e)}")
+        else:
+            logger.warning(f"No market data found for ticker: {base_symbol}")
             
     return watchlist_data
 
 
 def get_historical_ohlc(symbol, period="1mo", interval="1d"):
-    """
-    Fetches historical OHLC data for charts.
-    """
     try:
         base_symbol = symbol.strip().upper()
-        stock = yf.Ticker(base_symbol)
-        hist = stock.history(period=period, interval=interval)
+        search_symbols = [base_symbol]
         
-        if hist.empty and not base_symbol.endswith(('.NS', '.BO')):
-            base_symbol = f"{base_symbol}.NS"
-            stock = yf.Ticker(base_symbol)
-            hist = stock.history(period=period, interval=interval)
+        if not base_symbol.endswith(('.NS', '.BO')):
+            search_symbols = [base_symbol, f"{base_symbol}.NS", f"{base_symbol}.BO"]
 
-        if hist.empty:
+        hist = None
+        for s in search_symbols:
+            stock = yf.Ticker(s)
+            temp_hist = stock.history(period=period, interval=interval)
+            if not temp_hist.empty:
+                hist = temp_hist
+                break
+
+        if hist is None or hist.empty:
             return []
 
         data = []
