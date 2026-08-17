@@ -47,44 +47,42 @@ def get_historical_ohlc(symbol, days=30):
         return []
 
 def get_watchlist_prices(symbols):
-    """
-    Fetches the current price, absolute change, and percentage change 
-    for a list of symbols to populate the watchlist UI.
-    """
     watchlist_data = []
     
     for symbol in symbols:
         base_symbol = symbol.strip().upper()
-        try:
-            # Smart Fallback (US first, then India)
-            stock = yf.Ticker(base_symbol)
-            hist = stock.history(period="2d") # Fetch last 2 days to calculate change
-            exchange = "NYSE/NASDAQ"
+        
+        # 1. Determine the label based on the symbol provided
+        if base_symbol.endswith('.NS'):
+            exchange = "NSE"
+        elif base_symbol.endswith('.BO'):
+            exchange = "BSE"
+        else:
+            exchange = "NYSE/NASDAQ" # Default for unknown/US
             
-            if hist.empty and not base_symbol.endswith('.NS') and not base_symbol.endswith('.BO'):
-                stock = yf.Ticker(f"{base_symbol}.NS")
-                hist = stock.history(period="2d")
-                exchange = "NSE"
-                
-            if not hist.empty:
-                if len(hist) >= 2:
-                    prev_close = float(hist['Close'].iloc[-2])
-                    current_price = float(hist['Close'].iloc[-1])
-                else:
-                    prev_close = float(hist['Open'].iloc[0])
-                    current_price = float(hist['Close'].iloc[0])
-                    
-                change = current_price - prev_close
-                p_change = (change / prev_close) * 100
-                
-                watchlist_data.append({
-                    "symbol": base_symbol,
-                    "exchange": exchange,
-                    "price": current_price,
-                    "change": change,
-                    "pChange": p_change
-                })
-        except Exception as e:
-            print(f"Error fetching summary for {base_symbol}: {e}")
+        # 2. Try fetching the data
+        stock = yf.Ticker(base_symbol)
+        hist = stock.history(period="2d")
+        
+        # 3. If empty and wasn't already NSE/BSE, try auto-appending .NS
+        if hist.empty and exchange == "NYSE/NASDAQ":
+            base_symbol = f"{base_symbol}.NS"
+            stock = yf.Ticker(base_symbol)
+            hist = stock.history(period="2d")
+            exchange = "NSE"
+            
+        # 4. Proceed with price calculation
+        if not hist.empty:
+            # (Keep your existing price math logic here)
+            prev_close = float(hist['Close'].iloc[-2]) if len(hist) >= 2 else float(hist['Open'].iloc[0])
+            current_price = float(hist['Close'].iloc[-1])
+            
+            watchlist_data.append({
+                "symbol": base_symbol,
+                "exchange": exchange,
+                "price": current_price,
+                "change": current_price - prev_close,
+                "pChange": ((current_price - prev_close) / prev_close) * 100
+            })
             
     return watchlist_data
