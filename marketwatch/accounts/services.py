@@ -37,7 +37,6 @@ def get_watchlist_prices(symbols):
 
             # 4. Process pricing if history is successfully retrieved
             if not hist.empty:
-                # Handle edge case where only 1 day of history is returned
                 if len(hist) >= 2:
                     prev_close = float(hist['Close'].iloc[-2])
                 else:
@@ -62,3 +61,36 @@ def get_watchlist_prices(symbols):
             continue
             
     return watchlist_data
+
+
+def get_historical_ohlc(symbol, period="1mo", interval="1d"):
+    """
+    Fetches historical OHLC data for charts.
+    """
+    try:
+        base_symbol = symbol.strip().upper()
+        stock = yf.Ticker(base_symbol)
+        hist = stock.history(period=period, interval=interval)
+        
+        if hist.empty and not base_symbol.endswith(('.NS', '.BO')):
+            base_symbol = f"{base_symbol}.NS"
+            stock = yf.Ticker(base_symbol)
+            hist = stock.history(period=period, interval=interval)
+
+        if hist.empty:
+            return []
+
+        data = []
+        for date, row in hist.iterrows():
+            data.append({
+                "date": date.strftime('%Y-%m-%d'),
+                "open": float(row['Open']),
+                "high": float(row['High']),
+                "low": float(row['Low']),
+                "close": float(row['Close']),
+                "volume": int(row['Volume'])
+            })
+        return data
+    except Exception as e:
+        logger.error(f"Error fetching historical OHLC for {symbol}: {str(e)}")
+        return []
