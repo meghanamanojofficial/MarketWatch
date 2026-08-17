@@ -58,6 +58,7 @@ MIDDLEWARE = [
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
+    "https://market-watch-2tp3.vercel.app/",
 ]
 
 CORS_ALLOW_ALL_ORIGINS = True
